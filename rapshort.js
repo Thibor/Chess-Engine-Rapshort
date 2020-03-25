@@ -29,7 +29,6 @@ var g_pv = '';
 var g_totalNodes = 0;
 var g_startTime = 0;
 var g_inCheck = false;
-var g_depthout = 0;
 var g_timeout = 0;
 var g_nodeout = 0;
 var g_stop = false;
@@ -48,15 +47,12 @@ var arrDir = [[],[],[14,-14,18,-18,31,-31,33,-33],[15,-15,17,-17],[1,-1,16,-16],
 var arrMov = [0,0,1,7,7,7,1];
 
 function StrToSquare(s){
-var fl = {a:0, b:1, c:2, d:3, e:4,f:5, g:6, h:7};
-var x = fl[s.charAt(0)];
-var y = 12 - parseInt(s.charAt(1));
-return (x + 4) | (y << 4);
+return (('abcdefgh'.indexOf(s[0]) + 4) | (12 - parseInt(s[1])) << 4);
 }
-
-function FormatSquare(square){
-return ['a','b','c','d','e','f','g','h'][(square & 0xf) - 4] + (12 - (square >>4));
-}
+  
+function FormatSquare(i){
+return 'abcdefgh'[(i & 0xf) - 4] + (12 - (i >>4));
+} 
 
 function FormatMove(move){
 var result = FormatSquare(move & 0xFF) + FormatSquare((move >> 8) & 0xFF);
@@ -106,10 +102,9 @@ for (var i = 0; i < pieces.length; i++){
 	if (c == '/') {
 		row++;
 		col = 0;
-	}else if(c >= '0' && c <= '9') {
-		for (var j = 0; j < parseInt(c); j++)
-			col++;
-	}else{
+	}else if(c >= '0' && c <= '9')
+		col += parseInt(c);
+	else{
 		var b = c.toLowerCase();
 		var isWhite = b != c;
 		var piece = isWhite ? colorWhite : colorBlack;
@@ -183,7 +178,7 @@ for(var n = 0;n < 64;n++){
 		var del = wt ? -16 : 16;
 		var to = fr + del;
 		if(g_board[to] & colorEmpty){
-			GeneratePwnMoves(moves,fr,to,true)
+			GeneratePwnMoves(moves,fr,to,true);
 			if(!g_board[fr-del-del] && g_board[to + del] & colorEmpty)
 				GeneratePwnMoves(moves,fr,to + del,true);
 		}
@@ -254,7 +249,7 @@ if(flags & moveflagCastleKing){
 	g_board[to - 1] =  g_board[to + 1];
 	g_board[to + 1] = colorEmpty;
 }else if(flags & moveflagCastleQueen){
-	g_board[to + 1] = rook = g_board[to - 2];
+	g_board[to + 1] = g_board[to - 2];
 	g_board[to - 2] = colorEmpty;
 }else if(flags & moveflagPassing){
 	capi = whiteTurn ? to + 16 : to - 16;
@@ -263,8 +258,7 @@ if(flags & moveflagCastleKing){
 }
 undoStack.push(new cUndo());
 g_passing = 0;
-var capturedType = g_captured & 0xF;
-if(capturedType)
+if(g_captured & 0xF)
 	g_move50 = 0;
 else if((piece & 7) == piecePawn) {
 	if(to == (fr + 32))g_passing = (fr + 16);
@@ -370,7 +364,7 @@ while(n--){
 			bsPv = alphaPv;
 			var time = Date.now() - g_startTime;
 			var nps = Math.floor((g_totalNodes / time) * 1000);
-			postMessage('info currmove ' + bsFm + ' currmovenumber ' + n + ' nodes ' + g_totalNodes + ' time ' + time + ' nps ' + nps + ' depth ' + g_depthout + ' seldepth ' + alphaDe + ' score ' + g_scoreFm + ' pv ' + bsPv);
+			postMessage('info currmove ' + bsFm + ' currmovenumber ' + n + ' nodes ' + g_totalNodes + ' time ' + time + ' nps ' + nps + ' depth ' + depthL + ' seldepth ' + alphaDe + ' score ' + g_scoreFm + ' pv ' + bsPv);
 		}
 	}
 	if(alpha >= beta)break;
@@ -386,24 +380,22 @@ return alpha;
 
 function Search(depth,time,nodes){
 var mu = GenerateAllMoves(whiteTurn);
+var depthL = depth ? depth : 1;
 g_stop = false;
 g_totalNodes = 0;
-g_depthout = depth ? depth : 1;
 g_timeout = time;
 g_nodeout = nodes;
 do{
 	bsIn =  mu.length - 1;
-	var os = GetScore(mu,1,g_depthout,-0xffff,0xffff);
+	var os = GetScore(mu,1,depthL++,-0xffff,0xffff);
 	mu.push(mu.splice(bsIn,1));
-	if((g_depth < g_depthout++) || (os < - 0xf000) || (os > 0xf000))break;
-}while((!depth || (g_depthout < depth)) && !g_stop);
+}while((!depth || (depth > depthL)) && !g_stop);
 var time = Date.now() - g_startTime;
 var nps = Math.floor((g_totalNodes / time) * 1000);
 var ponder = bsPv.split(' ');
 var pm = ponder.length > 1 ? ' ponder ' + ponder[1] : '';
 postMessage('info nodes ' + g_totalNodes + ' time ' + time + ' nps ' + nps);
 postMessage('bestmove ' + bsFm + pm);
-return true;
 }
 
 var cUndo = function(){
@@ -428,7 +420,8 @@ if(msg == 'uci'){
 	postMessage('id name Rapshort ' + version);
 	postMessage('id author Thibor Raven');
 	postMessage('uciok');
-}else if (msg == 'isready') postMessage('readyok');
+}else if (msg == 'isready')
+	postMessage('readyok');
 else if ((/^position (?:(startpos)|fen (.*?))\s*(?:moves\s*(.*))?$/).exec(msg)){
 	InitializeFromFen((RegExp.$1 == 'startpos') ? '' : RegExp.$2);
 	if(RegExp.$3){
@@ -443,9 +436,8 @@ else if ((/^position (?:(startpos)|fen (.*?))\s*(?:moves\s*(.*))?$/).exec(msg)){
 	var n = GetNumber(msg,/nodes (\d+)/,0);
 	if(!t && !d && !n){
 		var ct = whiteTurn ? GetNumber(msg,/wtime (\d+)/,0) : GetNumber(msg,/btime (\d+)/,0);
-		var ci = whiteTurn ? GetNumber(msg,/winc (\d+)/,0) : GetNumber(msg,/binc (\d+)/,0);
 		var mg = GetNumber(msg,/movestogo (\d+)/,32);
-		t = Math.floor(ct / mg) + ci - 0xff;
+		t = Math.floor(ct / (mg + 1));
 	}
 	Search(d,t,n);
 }
